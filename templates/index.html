@@ -1,0 +1,139 @@
+{% extends "base.html" %}
+{% load staticfiles %}
+{% block title %}RTC{% endblock %}
+{% block header_text %}RTC{% endblock %}
+
+
+{% block content %}
+    <div id="chats">
+
+    </div>
+
+    <ul class="rooms">
+        {% for room in rooms %}
+            <li class="room-link" data-room-id="{{ room.id }}">{{ room }}</li>
+        {% empty %}
+            <p class="empty">No chat rooms defined. Maybe make some in the <a href="{% url 'admin:index' %}">admin</a>?</p>
+        {% endfor %}
+    </ul>
+{% endblock %}
+
+
+{% block extra_body %}
+    <!--
+    <script src="//cdnjs.cloudflare.com/ajax/libs/jquery/3.1.1/jquery.min.js"></script>
+    <script src="//cdnjs.cloudflare.com/ajax/libs/reconnecting-websocket/1.0.0/reconnecting-websocket.min.js"></script>
+    <script src="{% static "main.js" %}"></script>
+    -->
+    <script>
+        $(function () {
+            var ws_scheme = window.location.protocol == "https:" ? "wss" : "ws";
+            var ws_path = ws_scheme + '://' + window.location.host + "/rtc/stream/";
+            console.log("Connecting to " + ws_path);
+            var socket = new ReconnectingWebSocket(ws_path);
+
+            socket.onmessage = function (message) {
+                console.log("Got websocket message " + message.data);
+                var data = JSON.parse(message.data);
+                if (data.error) {
+                    alert(data.error);
+                    return;
+                }
+                if (data.join) {
+                    console.log("Joining room " + data.join);
+                    var roomdiv = $(
+                            "<div class='room' id='room-" + data.join + "'>" +
+                            "<h2>" + data.title + "</h2>" +
+                            "<div class='messages'></div>" +
+                            "<form><input><button>Send</button></form>" +
+                            "</div>"
+                    );
+                    roomdiv.find("form").on("submit", function () {
+                        socket.send(JSON.stringify({
+                            "command": "send",
+                            "room": data.join,
+                            "message": roomdiv.find("input").val()
+                        }));
+                        roomdiv.find("input").val("");
+                        return false;
+                    });
+                    $("#rtc").append(roomdiv);
+                } else if (data.leave) {
+                    console.log("Leaving room " + data.leave);
+                    $("#room-" + data.leave).remove();
+                } else if (data.message || data.msg_type != 0) {
+                    var msgdiv = $("#room-" + data.room + " .messages");
+                    var ok_msg = "";
+                    switch (data.msg_type) {
+                        case 0:
+                            ok_msg = "<div class='message'>" +
+                                    "<span class='username'>" + data.username + "</span>" +
+                                    "<span class='body'>" + data.message + "</span>" +
+                                    "</div>";
+                            break;
+                        case 1:
+                            ok_msg = "<div class='contextual-message text-warning'>" + data.message +
+                                    "</div>";
+                            break;
+                        case 2:
+                            ok_msg = "<div class='contextual-message text-danger'>" + data.message +
+                                    "</div>";
+                            break;
+                        case 3:
+                            ok_msg = "<div class='contextual-message text-muted'>" + data.message +
+                                    "</div>";
+                            break;
+                        case 4:
+                            ok_msg = "<div class='contextual-message text-muted'>" + data.username +
+                                    " joined the room!" +
+                                    "</div>";
+                            break;
+                        case 5:
+                            ok_msg = "<div class='contextual-message text-muted'>" + data.username +
+                                    " left the room!" +
+                                    "</div>";
+                            break;
+                        default:
+                            console.log("Unsupported message type!");
+                            return;
+                    }
+                    msgdiv.append(ok_msg);
+
+                    msgdiv.scrollTop(msgdiv.prop("scrollHeight"));
+                } else {
+                    console.log("Cannot handle message!");
+                }
+            };
+
+            inRoom = function (roomId) {
+                return $("#room-" + roomId).length > 0;
+            };
+
+            $("li.room-link").click(function () {
+                roomId = $(this).attr("data-room-id");
+                if (inRoom(roomId)) {
+                    // Leave room
+                    $(this).removeClass("joined");
+                    socket.send(JSON.stringify({
+                        "command": "leave",
+                        "room": roomId
+                    }));
+                } else {
+                    // Join room
+                    $(this).addClass("joined");
+                    socket.send(JSON.stringify({
+                        "command": "join",
+                        "room": roomId
+                    }));
+                }
+            });
+
+            socket.onopen = function () {
+                console.log("Connected to rtc socket");
+            };
+            socket.onclose = function () {
+                console.log("Disconnected from rtc socket");
+            }
+        });
+    </script>
+{% endblock %}
